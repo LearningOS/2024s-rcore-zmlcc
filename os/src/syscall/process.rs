@@ -1,7 +1,9 @@
 //! Process management syscalls
+// use alloc::task;
+
 use crate::{
     config::MAX_SYSCALL_NUM,
-    task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus},
+    task::{exit_current_and_run_next, suspend_current_and_run_next, task_info, TaskStatus},
     timer::get_time_us,
 };
 
@@ -51,7 +53,16 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    -1
+    let info = task_info();
+    unsafe {
+        *ti = TaskInfo {
+            status: info.status,
+            syscall_times: info.syscall_times,
+            time: info.running_time,
+        };
+    }
+
+    0
 }
