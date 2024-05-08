@@ -16,7 +16,9 @@ mod task;
 
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
+use crate::config::MAX_SYSCALL_NUM;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
@@ -79,6 +81,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.task_start_time = get_time_ms();
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -140,6 +143,9 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if inner.tasks[next].task_start_time == 0 {
+                inner.tasks[next].task_start_time = get_time_ms()
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -153,6 +159,35 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+
+    fn count_syscall(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_times[syscall_id] += 1;
+    }
+
+    fn current_task_info(&self) -> TaskInfo {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &inner.tasks[current];
+        TaskInfo {
+            status: current_task.task_status,
+            syscall_times: current_task.task_syscall_times,
+            running_time: get_time_ms() - current_task.task_start_time,
+        }
+    }
+}
+
+/// The task info
+#[derive(Copy, Clone)]
+pub struct TaskInfo {
+    /// The task status in it's lifecycle
+    pub status: TaskStatus,
+    /// The numbers of syscall called by task
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// Total running time of task
+    pub running_time: usize,
 }
 
 /// Run the first task in task list.
@@ -191,6 +226,16 @@ pub fn exit_current_and_run_next() {
 /// Get the current 'Running' task's token.
 pub fn current_user_token() -> usize {
     TASK_MANAGER.get_current_token()
+}
+
+/// Record the current task's syscall count
+pub fn count_syscall(syscall_id: usize) {
+    TASK_MANAGER.count_syscall(syscall_id)
+}
+
+/// Get the current task info
+pub fn current_task_info() -> TaskInfo {
+    TASK_MANAGER.current_task_info()
 }
 
 /// Get the current 'Running' task's trap contexts.
