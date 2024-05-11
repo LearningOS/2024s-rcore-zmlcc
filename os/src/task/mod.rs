@@ -14,11 +14,12 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
-use crate::config::MAX_SYSCALL_NUM;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
@@ -160,7 +161,6 @@ impl TaskManager {
         }
     }
 
-
     fn count_syscall(&self, syscall_id: usize) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
@@ -176,6 +176,18 @@ impl TaskManager {
             syscall_times: current_task.task_syscall_times,
             running_time: get_time_ms() - current_task.task_start_time,
         }
+    }
+
+    fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> Option<()> {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.insert_framed_area_checked(start_va, end_va, permission)
+    }
+
+    fn unmmap(&self, start_va: VirtAddr, end_va: VirtAddr,) -> Option<()> {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.remove_area_checked(start_va, end_va)
     }
 }
 
@@ -246,4 +258,45 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// memory map
+pub fn mmap(start: usize, len: usize, port: usize) -> Option<()> {
+    let start_va = VirtAddr::from(start);
+    if !start_va.aligned() {
+        return None;
+    }
+    let end_va = VirtAddr::from(start + len);
+
+    if port & !0x7 != 0 || port & 0x7 == 0 {
+        return None;
+    }
+
+    let mut perm = MapPermission::U;
+    if port & 0b1 == 0b1 {
+        perm |= MapPermission::R;
+    }
+    if port & 0b10 == 0b10 {
+        perm |= MapPermission::W;
+    }
+
+    if port & 0b100 == 0b100 {
+        perm |= MapPermission::X;
+    }
+    TASK_MANAGER.mmap(start_va, end_va, perm)
+}
+
+
+/// memory unmap
+pub fn unmmap(start: usize, len: usize) -> Option<()> {
+    let start_va = VirtAddr::from(start);
+    if !start_va.aligned() {
+        return None;
+    }
+    let end_va = VirtAddr::from(start + len);
+    if !end_va.aligned() {
+        return None;
+    }
+    TASK_MANAGER.unmmap(start_va, end_va)
+
 }

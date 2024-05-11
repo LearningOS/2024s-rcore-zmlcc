@@ -63,6 +63,24 @@ impl MemorySet {
             None,
         );
     }
+
+    /// Insert framed area with range check
+    pub fn insert_framed_area_checked(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) -> Option<()> {
+        let area = MapArea::new(start_va, end_va, MapType::Framed, permission);
+        for item in self.areas.iter() {
+            if area.intersect(item) {
+                return None;
+            }
+        }
+        self.push(area, None);
+        Some(())
+    }
+
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
@@ -70,6 +88,21 @@ impl MemorySet {
         }
         self.areas.push(map_area);
     }
+
+    /// Remove area with range check
+    pub fn remove_area_checked(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> Option<()> {
+
+
+        let start_vpn: VirtPageNum = start_va.floor();
+        let end_vpn: VirtPageNum = end_va.ceil();
+        let idx = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn
+        })?;
+        let mut area = self.areas.remove(idx);
+        area.unmap(&mut self.page_table);
+        Some(())
+    }
+
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
         self.page_table.map(
@@ -354,6 +387,16 @@ impl MapArea {
                 break;
             }
             current_vpn.step();
+        }
+    }
+
+    pub fn intersect(&self, other: &MapArea) -> bool {
+        if self.vpn_range.get_start() >= other.vpn_range.get_end()
+            || self.vpn_range.get_end() <= other.vpn_range.get_start()
+        {
+            return false;
+        } else {
+            return true;
         }
     }
 }
