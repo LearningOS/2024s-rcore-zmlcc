@@ -4,10 +4,13 @@ use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+
+use crate::config::MAX_SYSCALL_NUM;
 
 /// Task control block structure
 ///
@@ -68,6 +71,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The numbers of syscall called by task
+    pub task_syscall_times: [u32; MAX_SYSCALL_NUM],
+
+    /// when the task starts
+    pub task_start_time: Option<usize>,
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +127,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    task_syscall_times: [0; MAX_SYSCALL_NUM],
+                    task_start_time: None,
                 })
             },
         };
@@ -191,6 +202,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    task_start_time: None,
+                    task_syscall_times: [0; MAX_SYSCALL_NUM],
                 })
             },
         });
@@ -236,6 +249,26 @@ impl TaskControlBlock {
             None
         }
     }
+
+    /// Record the task's syscall count
+    pub fn count_syscall(&self, syscall_id: usize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.task_syscall_times[syscall_id] += 1;
+    }
+
+    /// Get the  task info
+    pub fn task_info(&self) -> TaskInfo {
+        let inner = self.inner_exclusive_access();
+
+        TaskInfo {
+            status: inner.task_status,
+            syscall_times: inner.task_syscall_times,
+            running_time: match inner.task_start_time {
+                None => 0,
+                Some(t) => get_time_ms() - t,
+            },
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -249,4 +282,15 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+/// The task info
+#[derive(Copy, Clone)]
+pub struct TaskInfo {
+    /// The task status in it's lifecycle
+    pub status: TaskStatus,
+    /// The numbers of syscall called by task
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// Total running time of task
+    pub running_time: usize,
 }

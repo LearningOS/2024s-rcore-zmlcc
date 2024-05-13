@@ -213,3 +213,34 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .unwrap()
         .get_mut()
 }
+
+/// Copy a value to target virtual address through page tabe
+pub fn copy_to_page<T: Copy>(token: usize, dst: *mut T, src: &T) {
+    let page_table = PageTable::from_token(token);
+    let src_slice = unsafe {
+        core::slice::from_raw_parts(
+            core::ptr::from_ref(src) as *const u8,
+            core::mem::size_of::<T>(),
+        )
+    };
+    let mut offset = 0;
+    let mut start = dst as usize;
+    let end = start + core::mem::size_of::<T>();
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        let target = if end_va.page_offset() == 0 {
+            &mut ppn.get_bytes_array()[start_va.page_offset()..]
+        } else {
+            &mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]
+        };
+        let length = target.len();
+        target.copy_from_slice(&src_slice[offset..offset + length]);
+        offset += length;
+        start = end_va.into();
+    }
+}

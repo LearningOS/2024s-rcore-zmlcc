@@ -4,15 +4,16 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{copy_to_page, translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next, TaskStatus,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
@@ -20,6 +21,8 @@ pub struct TimeVal {
 
 /// Task information
 #[allow(dead_code)]
+#[derive(Clone, Copy)]
+
 pub struct TaskInfo {
     /// Task status in it's life cycle
     status: TaskStatus,
@@ -79,7 +82,11 @@ pub fn sys_exec(path: *const u8) -> isize {
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
+    trace!(
+        "kernel::pid[{}] sys_waitpid [{}]",
+        current_task().unwrap().pid.0,
+        pid
+    );
     let task = current_task().unwrap();
     // find a child process
 
@@ -117,23 +124,32 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    trace!("kernel: sys_get_time");
+    let us = get_time_us();
+    let res = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let token = current_user_token();
+    copy_to_page(token, ts, &res);
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
+    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
+    let info = current_task().unwrap().task_info();
+    let res = TaskInfo {
+        status: info.status,
+        syscall_times: info.syscall_times,
+        time: info.running_time,
+    };
+    let token = current_user_token();
+    copy_to_page(token, ti, &res);
+    0
 }
 
 /// YOUR JOB: Implement mmap.
