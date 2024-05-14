@@ -60,6 +60,24 @@ impl MemorySet {
             None,
         );
     }
+
+    /// Insert framed area with range check
+    pub fn insert_framed_area_checked(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) -> Option<()> {
+        let area = MapArea::new(start_va, end_va, MapType::Framed, permission);
+        for item in self.areas.iter() {
+            if area.intersect(item) {
+                return None;
+            }
+        }
+        self.push(area, None);
+        Some(())
+    }
+
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
@@ -72,6 +90,19 @@ impl MemorySet {
             self.areas.remove(idx);
         }
     }
+
+    /// Remove area with range check
+    pub fn remove_area_checked(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> Option<()> {
+        let start_vpn: VirtPageNum = start_va.floor();
+        let end_vpn: VirtPageNum = end_va.ceil();
+        let idx = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn
+        })?;
+        let mut area = self.areas.remove(idx);
+        area.unmap(&mut self.page_table);
+        Some(())
+    }
+
     /// Add a new MapArea into this MemorySet.
     /// Assuming that there are no conflicts in the virtual address
     /// space.
@@ -398,6 +429,16 @@ impl MapArea {
                 break;
             }
             current_vpn.step();
+        }
+    }
+
+    pub fn intersect(&self, other: &MapArea) -> bool {
+        if self.vpn_range.get_start() >= other.vpn_range.get_end()
+            || self.vpn_range.get_end() <= other.vpn_range.get_start()
+        {
+            return false;
+        } else {
+            return true;
         }
     }
 }

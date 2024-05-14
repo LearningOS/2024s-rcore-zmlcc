@@ -2,7 +2,7 @@
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
 use crate::trap::{trap_handler, TrapContext};
@@ -356,6 +356,18 @@ impl TaskControlBlock {
                 Some(t) => get_time_ms() - t,
             },
         }
+    }
+
+    /// Memory map
+    pub fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> Option<()> {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.insert_framed_area_checked(start_va, end_va, permission)
+    }
+
+    /// Memory unmap
+    pub fn unmmap(&self, start_va: VirtAddr, end_va: VirtAddr,) -> Option<()> {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.remove_area_checked(start_va, end_va)
     }
 }
 
