@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use core::cell::RefMut;
 
 use crate::config::MAX_SYSCALL_NUM;
+use crate::config::{DEFAULT_PRIORITY,BIG_STRIDE};
 
 /// Task control block structure
 ///
@@ -25,6 +26,8 @@ pub struct TaskControlBlock {
 
     /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
+
+    
 }
 
 impl TaskControlBlock {
@@ -36,6 +39,24 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
+    }
+
+    /// step stride
+    pub fn step_stride(&self){
+        let mut inner = self.inner_exclusive_access();
+        inner.stride += BIG_STRIDE / inner.priority
+    }
+
+    /// get stride
+    pub fn get_stride(&self) -> usize{
+        let  inner = self.inner_exclusive_access();
+        inner.stride 
+    }
+
+    /// set priority
+    pub fn set_priority(&self, priority: usize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.priority = priority
     }
 }
 
@@ -77,6 +98,12 @@ pub struct TaskControlBlockInner {
 
     /// when the task starts
     pub task_start_time: Option<usize>,
+
+    /// Priority
+    pub priority: usize,
+
+    /// stride
+    pub stride: usize,
 }
 
 impl TaskControlBlockInner {
@@ -129,6 +156,8 @@ impl TaskControlBlock {
                     program_brk: user_sp,
                     task_syscall_times: [0; MAX_SYSCALL_NUM],
                     task_start_time: None,
+                    priority: DEFAULT_PRIORITY,
+                    stride: 0,
                 })
             },
         };
@@ -204,8 +233,11 @@ impl TaskControlBlock {
                     program_brk: parent_inner.program_brk,
                     task_start_time: None,
                     task_syscall_times: [0; MAX_SYSCALL_NUM],
+                    priority: parent_inner.priority,
+                    stride: 0,
                 })
             },
+
         });
         // add child
         parent_inner.children.push(task_control_block.clone());
@@ -251,8 +283,11 @@ impl TaskControlBlock {
                     program_brk: parent_inner.program_brk,
                     task_start_time: None,
                     task_syscall_times: [0; MAX_SYSCALL_NUM],
+                    priority: parent_inner.priority,
+                    stride: 0,
                 })
             },
+
         });
         // add child
         parent_inner.children.push(task_control_block.clone());
